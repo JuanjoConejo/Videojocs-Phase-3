@@ -1,0 +1,225 @@
+<!doctype html> 
+<html lang="en"> 
+<head> 
+    <meta charset="UTF-8" />
+    <title>Making your first Phaser 3 Game - Part 10</title>
+    <script src="//cdn.jsdelivr.net/npm/phaser@3.11.0/dist/phaser.js"></script>
+    <style type="text/css">
+        body {
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+
+<script type="text/javascript">
+
+var config = {
+    type: Phaser.AUTO,
+    width: 800,
+    height: 600,
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 300 },
+            debug: false
+        }
+    },
+    scene: {
+        preload: preload,
+        create: create,
+        update: update
+    }
+};
+
+var player;
+var stars;
+var bombs;
+var obstacles; // Renombrado de 'platforms' a 'obstacles'
+var clocks; // Grupo para el objeto Reloj
+var cursors;
+var score = 0;
+var gameOver = false;
+var scoreText;
+var countdownText;
+var gameOverText;
+var countdown = 30; // Tiempo de la cuenta regresiva en segundos
+
+var game = new Phaser.Game(config);
+
+function preload ()
+{
+    this.load.image('sky', 'assets/Cielo.jpg');
+    this.load.image('ground', 'assets/platform.png');
+    this.load.image('star', 'assets/star.png');
+    this.load.image('bomb', 'assets/bomb.png');
+    this.load.image('clock', 'assets/Reloj.png'); // Cargar la imagen del reloj
+    this.load.spritesheet('Juanjo', 'assets/Juanjo.png', { frameWidth: 32, frameHeight: 48 });
+}
+
+function create ()
+{
+    this.add.image(0, 0, 'sky');
+    obstacles = this.physics.add.staticGroup(); // Creación del grupo 'obstacles'
+
+    // Configuración de las posiciones de las plataformas
+    obstacles.create(400, 568, 'ground').setScale(2).refreshBody(); // Plataforma inferior
+    obstacles.create(600, 450, 'ground'); // Plataforma más alta
+    obstacles.create(50, 300, 'ground'); // Plataforma intermedia
+    obstacles.create(750, 220, 'ground'); // Plataforma superior derecha
+
+    player = this.physics.add.sprite(100, 450, 'Juanjo');
+    player.setBounce(0.2);
+    player.setCollideWorldBounds(true);
+
+    this.anims.create({
+        key: 'left',
+        frames: this.anims.generateFrameNumbers('Juanjo', { start: 0, end: 3 }),
+        frameRate: 10,
+        repeat: -1
+    });
+    this.anims.create({
+        key: 'turn',
+        frames: [ { key: 'Juanjo', frame: 4 } ],
+        frameRate: 20
+    });
+    this.anims.create({
+        key: 'right',
+        frames: this.anims.generateFrameNumbers('Juanjo', { start: 5, end: 8 }),
+        frameRate: 10,
+        repeat: -1
+    });
+
+    cursors = this.input.keyboard.createCursorKeys();
+
+    stars = this.physics.add.group({
+        key: 'star',
+        repeat: 5,
+        setXY: { x: 12, y: 0, stepX: 70 }
+    });
+
+    stars.children.iterate(function (child) {
+        child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
+    });
+
+    bombs = this.physics.add.group();
+
+    clocks = this.physics.add.group({
+        key: 'clock',
+        repeat: 2,
+        setXY: { x: 150, y: 0, stepX: 300 } // Distribuir los relojes en el nivel
+    });
+
+    clocks.children.iterate(function (child) {
+        child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
+        child.setScale(0.1); // Escalar el reloj al mismo tamaño que la bomba (ajusta según el tamaño real)
+    });
+
+    scoreText = this.add.text(16, 16, 'Score: 0', { fontSize: '32px', fill: '#000' });
+    countdownText = this.add.text(16, 50, 'Time: ' + countdown, { fontSize: '32px', fill: '#000' });
+
+    // Mensaje de fin de juego
+    gameOverText = this.add.text(400, 300, 'Game Over', { fontSize: '64px', fill: '#ff0000' });
+    gameOverText.setOrigin(0.5);
+    gameOverText.visible = false;
+
+    // Inicia la cuenta regresiva
+    this.time.addEvent({
+        delay: 1000,
+        callback: updateCountdown,
+        callbackScope: this,
+        loop: true
+    });
+
+    // Colisiones y superposiciones
+    this.physics.add.collider(player, obstacles);
+    this.physics.add.collider(stars, obstacles);
+    this.physics.add.collider(bombs, obstacles);
+    this.physics.add.collider(clocks, obstacles); // Colisión del reloj con obstáculos
+
+    this.physics.add.overlap(player, stars, collectStar, null, this);
+    this.physics.add.overlap(player, clocks, collectClock, null, this); // Superposición del jugador con el reloj
+    this.physics.add.collider(player, bombs, hitBomb, null, this);
+}
+
+function update ()
+{
+    if (gameOver) return;
+
+    if (cursors.left.isDown) {
+        player.setVelocityX(-160);
+        player.anims.play('left', true);
+    } else if (cursors.right.isDown) {
+        player.setVelocityX(160);
+        player.anims.play('right', true);
+    } else {
+        player.setVelocityX(0);
+        player.anims.play('turn');
+    }
+
+    if (cursors.up.isDown && player.body.touching.down) {
+        player.setVelocityY(-330);
+    }
+}
+
+function collectStar (player, star)
+{
+    star.disableBody(true, true);
+
+    score += 10;
+    scoreText.setText('Score: ' + score);
+
+    if (stars.countActive(true) === 0) {
+        stars.children.iterate(function (child) {
+            child.enableBody(true, child.x, 0, true, true);
+        });
+
+        var x = (player.x < 400) ? Phaser.Math.Between(400, 800) : Phaser.Math.Between(0, 400);
+        var bomb = bombs.create(x, 16, 'bomb');
+        bomb.setBounce(1);
+        bomb.setCollideWorldBounds(true);
+        bomb.setVelocity(Phaser.Math.Between(-200, 200), 20);
+        bomb.allowGravity = false;
+    }
+}
+
+function collectClock(player, clock) {
+    clock.disableBody(true, true);
+
+    // Sumar 15 segundos al contador
+    countdown += 15;
+    countdownText.setText('Time: ' + countdown);
+}
+
+function hitBomb (player, bomb)
+{
+    endGame(this);
+}
+
+function updateCountdown()
+{
+    if (countdown > 0) {
+        countdown--;
+        countdownText.setText('Time: ' + countdown);
+    } else {
+        endGame(this);
+    }
+}
+
+function endGame(scene)
+{
+    if (!gameOver) {
+        gameOver = true;
+        scene.physics.pause();
+        player.setTint(0xff0000);
+        player.anims.play('turn');
+        
+        // Mostrar mensaje de fin de juego
+        gameOverText.visible = true;
+    }
+}
+
+</script>
+
+</body>
+</html>
